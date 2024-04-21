@@ -1,23 +1,18 @@
 import express from "express";
 import bodyParser from "body-parser";
 import { encode } from "gpt-3-encoder";
+import { randomUUID, randomInt, createHash } from "crypto";
 import { config } from "dotenv";
 config();
 const port = process.env.SERVER_PORT
 const baseUrl = "https://chat.openai.com";
 const apiUrl = `${baseUrl}/backend-anon/conversation`;
-const refreshInterval = 60000;
+const refreshInterval = 120000;
 const errorWait = 120000;
-let token;
-let oaiDeviceId;
+const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.26 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.26"
+
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-function randomUUID() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        var r = Math.random() * 16 | 0,
-            v = c === 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-    });
-}
+
 function GenerateCompletionId(prefix = "cmpl-") {
     const characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     const length = 28;
@@ -26,6 +21,7 @@ function GenerateCompletionId(prefix = "cmpl-") {
     }
     return prefix;
 }
+
 async function* chunksToLines(chunksAsync) {
     let previous = "";
     for await (const chunk of chunksAsync) {
@@ -33,14 +29,45 @@ async function* chunksToLines(chunksAsync) {
         previous += bufferChunk;
         let eolIndex;
         while ((eolIndex = previous.indexOf("\n")) >= 0) {
+            // line includes the EOL
             const line = previous.slice(0, eolIndex + 1).trimEnd();
-            if (line === "data: [DONE]")
-                break;
-            if (line.startsWith("data: "))
-                yield line;
+            if (line === "data: [DONE]") break;
+            if (line.startsWith("data: ")) yield line;
             previous = previous.slice(eolIndex + 1);
         }
     }
+}
+// Generate a proof token for the OpenAI API
+function GenerateProofToken(seed, diff, userAgent) {
+    const cores = [8, 12, 16, 24];
+    const screens = [3000, 4000, 6000];
+
+    const core = cores[randomInt(0, cores.length)];
+    const screen = screens[randomInt(0, screens.length)];
+
+    const now = new Date(Date.now() - 8 * 3600 * 1000);
+    const parseTime = now.toUTCString().replace("GMT", "GMT-0500 (Eastern Time)");
+
+    const config = [core + screen, parseTime, 4294705152, 0, userAgent];
+
+    const diffLen = diff.length / 2;
+
+    for (let i = 0; i < 100000; i++) {
+        config[3] = i;
+        const jsonData = JSON.stringify(config);
+        const base = Buffer.from(jsonData).toString("base64");
+        const hashValue = createHash("sha3-512")
+            .update(seed + base)
+            .digest();
+
+        if (hashValue.toString("hex").substring(0, diffLen) <= diff) {
+            const result = "gAAAAAB" + base;
+            return result;
+        }
+    }
+
+    const fallbackBase = Buffer.from(`"${seed}"`).toString("base64");
+    return "gAAAAABwQ8Lk5FbGpA2NcR9dShT6gYjU7VxZ4D" + fallbackBase;
 }
 async function* linesToMessages(linesAsync) {
     for await (const line of linesAsync) {
@@ -51,33 +78,48 @@ async function* linesToMessages(linesAsync) {
 async function* StreamCompletion(data) {
     yield* linesToMessages(chunksToLines(data));
 }
-async function getNewSessionId() {
+async function getNewSession(tryCountNow = 1) {
+    const tryCountMax = 5
     let newDeviceId = randomUUID();
-    let response = await fetch("https://chat.openai.com/backend-anon/sentinel/chat-requirements", {
-        "headers": {
-            "accept": "*/*",
-            "accept-language": "zh,zh-CN;q=0.9,en;q=0.8,zh-TW;q=0.7",
-            "cache-control": "no-cache",
-            "content-type": "application/json",
-            "oai-device-id": newDeviceId,
-            "oai-language": "en-US",
-            "pragma": "no-cache",
-            "sec-ch-ua": "\" Not A;Brand\";v=\"99\", \"Chromium\";v=\"100\"",
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": "\"macOS\"",
-            "sec-fetch-dest": "empty",
-            "sec-fetch-mode": "cors",
-            "sec-fetch-site": "same-origin"
-        },
-        "referrer": "https://chat.openai.com/",
-        "body": "{}",
-        "method": "POST",
-    });
-    response = await response.json();
-    console.log('[getNewSessionId response] :>> ', JSON.stringify(response));
-    console.log(`System: Successfully refreshed session ID and token. ${!token ? "(Now it's ready to process requests)" : ""}`);
-    oaiDeviceId = newDeviceId;
-    token = response.token;
+    let response = null
+    try {
+        response = await fetch("https://chat.openai.com/backend-anon/sentinel/chat-requirements", {
+            "headers": {
+                "accept": "*/*",
+                "accept-language": "zh,zh-CN;q=0.9,en;q=0.8,zh-TW;q=0.7",
+                "cache-control": "no-cache",
+                "content-type": "application/json",
+                "oai-device-id": newDeviceId,
+                "oai-language": "en-US",
+                "pragma": "no-cache",
+                "sec-ch-ua": '"Google Chrome";v="120", "Not:A-Brand";v="8", "Chromium";v="120"',
+                "sec-ch-ua-mobile": "?0",
+                "sec-ch-ua-platform": '"Windows"',
+                "sec-fetch-dest": "empty",
+                "sec-fetch-mode": "cors",
+                "sec-fetch-site": "same-origin",
+                // "user-agent": userAgent,
+            },
+            "referrer": baseUrl,
+            "body": "{}",
+            "method": "POST",
+        });
+        response = await response.json();
+    } catch (error) {
+        console.log('[Fail] :>> getNewSession Fail , trying', tryCountNow);
+        await wait(500);
+        if (tryCountMax >= tryCountNow) {
+            return await getNewSession(tryCountNow + 1)
+        }
+        throw new Error(`ERROR: GET SESSION FAIL :::`, error)
+    }
+    if (!!response?.token) {
+        console.log('request session done');
+    } else {
+        throw new Error(`!!!request session failed!!! => ${response}`)
+    }
+    response.deviceId = newDeviceId;
+    return response
 }
 function enableCORS(req, res, next) {
     res.header("Access-Control-Allow-Origin", "*");
@@ -88,35 +130,14 @@ function enableCORS(req, res, next) {
     }
     next();
 }
-function sendApiRequest(bodyObj) {
-    return fetch(apiUrl, {
-        method: "POST",
-        headers: {
-            accept: "*/*",
-            "accept-language": "en-US,en;q=0.9",
-            "cache-control": "no-cache",
-            "content-type": "application/json",
-            "oai-language": "en-US",
-            origin: baseUrl,
-            pragma: "no-cache",
-            referer: baseUrl,
-            "pragma": "no-cache",
-            "sec-ch-ua": "\" Not A;Brand\";v=\"99\", \"Chromium\";v=\"100\"",
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": "\"macOS\"",
-            "sec-fetch-dest": "empty",
-            "sec-fetch-mode": "cors",
-            "sec-fetch-site": "same-origin",
-            "oai-device-id": oaiDeviceId,
-            "openai-sentinel-chat-requirements-token": token,
-        },
-        referer: baseUrl,
-        body: JSON.stringify(bodyObj),
-    });
-}
+
 async function handleChatCompletion(req, res) {
     console.log("Request:", `${req.method} ${req.originalUrl}`, `${req.body?.messages?.length ?? 0} messages`, req.body.stream ? "(stream-enabled)" : "(stream-disabled)");
     try {
+        let session = await getNewSession().catch(err => {
+            res.write(err);
+            return res.end();
+        })
         let promptTokens = 0;
         let completionTokens = 0;
         for (let message of req.body.messages) {
@@ -133,7 +154,13 @@ async function handleChatCompletion(req, res) {
         let fullContent = "";
         let requestId = GenerateCompletionId("chatcmpl-");
         let created = Math.floor(Date.now() / 1000);
+        let error = null
         let finish_reason = null;
+        let proofToken = GenerateProofToken(
+            session.proofofwork.seed,
+            session.proofofwork.difficulty,
+            userAgent
+        );
 
         const body = {
             action: "next",
@@ -149,15 +176,40 @@ async function handleChatCompletion(req, res) {
             conversation_mode: { kind: "primary_assistant" },
             websocket_request_id: randomUUID(),
         };
-        const response = await sendApiRequest(body)
+        const response = await fetch(apiUrl, {
+            method: "POST",
+            "headers": {
+                accept: "*/*",
+                "accept-language": "en-US,en;q=0.9",
+                "cache-control": "no-cache",
+                "content-type": "application/json",
+                "oai-language": "en-US",
+                origin: baseUrl,
+                pragma: "no-cache",
+                "sec-ch-ua": '"Google Chrome";v="120", "Not:A-Brand";v="8", "Chromium";v="120"',
+                "sec-ch-ua-mobile": "?0",
+                "sec-ch-ua-platform": '"Windows"',
+                "sec-fetch-dest": "empty",
+                "sec-fetch-mode": "cors",
+                "sec-fetch-site": "same-origin",
+                "oai-device-id": session.deviceId,
+                "openai-sentinel-chat-requirements-token": session.token,
+                "openai-sentinel-proof-token": proofToken,
+            },
+            "user-agent": userAgent,
+            "referrer": baseUrl,
+            body: JSON.stringify(body),
+        });
         for await (const message of StreamCompletion(response.body)) {
             if (message.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.\d{6}$/)) {
                 continue;
             }
             const parsed = JSON.parse(message);
-            // console.log('00000000000000');
-            // console.log('parsed :>> ', parsed);
-            // console.log('1111111111111111111');
+            if (parsed.error) {
+                error = `Error message from OpenAI: ${parsed.error}`;
+                finish_reason = "stop";
+                break;
+            }
             // debugger
             let content = parsed?.message?.content?.parts[0] ?? "";
             let status = parsed?.message?.status ?? ""
@@ -217,7 +269,7 @@ async function handleChatCompletion(req, res) {
                 choices: [
                     {
                         delta: {
-                            content: "",
+                            content: error ?? "",
                         },
                         index: 0,
                         finish_reason: finish_reason,
@@ -237,7 +289,7 @@ async function handleChatCompletion(req, res) {
                         finish_reason: finish_reason,
                         index: 0,
                         message: {
-                            content: fullContent,
+                            content: error ?? fullContent,
                             role: "assistant",
                         },
                     },
@@ -254,15 +306,9 @@ async function handleChatCompletion(req, res) {
     }
     catch (error) {
         console.log('!!!!!!!!error!!!!!! :>> ', error);
-        if (!res.headersSent)
-            res.setHeader("Content-Type", "application/json");
         res.write(JSON.stringify({
             status: false,
-            error: {
-                message: "An error occurred. Please check the server console to confirm it is ready and free of errors. Additionally, ensure that your request complies with OpenAI's policy.",
-                type: "invalid_request_error",
-            },
-            support: "https://discord.pawan.krd",
+            error: error
         }));
         res.end();
     }
@@ -287,10 +333,11 @@ app.listen(port, async () => {
     setTimeout(async () => {
         while (true) {
             try {
-                await getNewSessionId();
+                await getNewSession();
                 await wait(refreshInterval);
             }
             catch (error) {
+                console.log('[Error getNewSession] :>> ', error);
                 console.error("Error refreshing session ID, retrying in 2 minute...");
                 console.error("If this error persists, your country may not be supported yet.");
                 console.error("If your country was the issue, please consider using a U.S. VPN.");
