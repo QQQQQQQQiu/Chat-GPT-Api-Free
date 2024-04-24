@@ -7,9 +7,7 @@ config();
 const port = process.env.SERVER_PORT
 const baseUrl = "https://chat.openai.com";
 const apiUrl = `${baseUrl}/backend-anon/conversation`;
-const refreshInterval = 120000;
-const errorWait = 120000;
-const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.26 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.26"
+const userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.60 Safari/537.36'
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -83,26 +81,36 @@ async function getNewSession(tryCountNow = 1) {
     let newDeviceId = randomUUID();
     let response = null
     try {
+        const headers = {
+            'authority': 'chat.openai.com',
+            'accept': '*/*',
+            'accept-language': 'zh,zh-CN;q=0.9,en;q=0.8,zh-TW;q=0.7',
+            'cache-control': 'no-cache',
+            'content-type': 'application/json',
+            'cookie': ` oai-did=${newDeviceId}; cf_clearance=UsfMxexor9VwaAuoxNUfCByIqkcgeNg6X2FREFi97TI-1713937740-1.0.1.1-NGhhPS1EIKdEG8I.zGDz.ava5v6jIvXodnP8DrtdQMm_uiKiVVve0g76.kZSzqtkX_xMFV401CUCus7kO9nC.Q; __Secure-next-auth.callback-url=https%3A%2F%2Fchat.openai.com`,
+            'oai-device-id': newDeviceId,
+            'oai-language': 'en-US',
+            'origin': 'https://chat.openai.com',
+            'pragma': 'no-cache',
+            'referer': 'https://chat.openai.com/',
+            'sec-ch-ua': '" Not A;Brand";v="99", "Chromium";v="100"',
+            'sec-ch-ua-arch': '"x86"',
+            'sec-ch-ua-bitness': '"64"',
+            'sec-ch-ua-full-version': '"100.0.4896.60"',
+            'sec-ch-ua-full-version-list': '" Not A;Brand";v="99.0.0.0", "Chromium";v="100.0.4896.60"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-model': '',
+            'sec-ch-ua-platform': '"macOS"',
+            'sec-ch-ua-platform-version': '"10.15.7"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'user-agent': userAgent
+        };
         response = await fetch("https://chat.openai.com/backend-anon/sentinel/chat-requirements", {
-            "headers": {
-                "accept": "*/*",
-                "accept-language": "zh,zh-CN;q=0.9,en;q=0.8,zh-TW;q=0.7",
-                "cache-control": "no-cache",
-                "content-type": "application/json",
-                "oai-device-id": newDeviceId,
-                "oai-language": "en-US",
-                "pragma": "no-cache",
-                "sec-ch-ua": '"Google Chrome";v="120", "Not:A-Brand";v="8", "Chromium";v="120"',
-                "sec-ch-ua-mobile": "?0",
-                "sec-ch-ua-platform": '"Windows"',
-                "sec-fetch-dest": "empty",
-                "sec-fetch-mode": "cors",
-                "sec-fetch-site": "same-origin",
-                // "user-agent": userAgent,
-            },
-            "referrer": baseUrl,
-            "body": "{}",
-            "method": "POST",
+            headers,
+            body: "{}",
+            method: "POST",
         });
         response = await response.json();
     } catch (error) {
@@ -176,28 +184,38 @@ async function handleChatCompletion(req, res) {
             conversation_mode: { kind: "primary_assistant" },
             websocket_request_id: randomUUID(),
         };
+        const headers = {
+            'authority': 'chat.openai.com',
+            'accept': '*/*',
+            'accept-language': 'zh,zh-CN;q=0.9,en;q=0.8,zh-TW;q=0.7',
+            'cache-control': 'no-cache',
+            'content-type': 'application/json',
+            'cookie': ` oai-did=${session.deviceId}; cf_clearance=UsfMxexor9VwaAuoxNUfCByIqkcgeNg6X2FREFi97TI-1713937740-1.0.1.1-NGhhPS1EIKdEG8I.zGDz.ava5v6jIvXodnP8DrtdQMm_uiKiVVve0g76.kZSzqtkX_xMFV401CUCus7kO9nC.Q; __Secure-next-auth.callback-url=https%3A%2F%2Fchat.openai.com`,
+            'oai-device-id': session.deviceId,
+            'oai-language': 'en-US',
+            'origin': 'https://chat.openai.com',
+            'pragma': 'no-cache',
+            'referer': 'https://chat.openai.com/',
+            'sec-ch-ua': '" Not A;Brand";v="99", "Chromium";v="100"',
+            'sec-ch-ua-arch': '"x86"',
+            'sec-ch-ua-bitness': '"64"',
+            'sec-ch-ua-full-version': '"100.0.4896.60"',
+            'sec-ch-ua-full-version-list': '" Not A;Brand";v="99.0.0.0", "Chromium";v="100.0.4896.60"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-model': '',
+            'sec-ch-ua-platform': '"macOS"',
+            'sec-ch-ua-platform-version': '"10.15.7"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'user-agent': userAgent,
+            "oai-device-id": session.deviceId,
+            "openai-sentinel-chat-requirements-token": session.token,
+            "openai-sentinel-proof-token": proofToken,
+        }
         const response = await fetch(apiUrl, {
             method: "POST",
-            "headers": {
-                accept: "*/*",
-                "accept-language": "en-US,en;q=0.9",
-                "cache-control": "no-cache",
-                "content-type": "application/json",
-                "oai-language": "en-US",
-                origin: baseUrl,
-                pragma: "no-cache",
-                "sec-ch-ua": '"Google Chrome";v="120", "Not:A-Brand";v="8", "Chromium";v="120"',
-                "sec-ch-ua-mobile": "?0",
-                "sec-ch-ua-platform": '"Windows"',
-                "sec-fetch-dest": "empty",
-                "sec-fetch-mode": "cors",
-                "sec-fetch-site": "same-origin",
-                "oai-device-id": session.deviceId,
-                "openai-sentinel-chat-requirements-token": session.token,
-                "openai-sentinel-proof-token": proofToken,
-            },
-            "user-agent": userAgent,
-            "referrer": baseUrl,
+            headers,
             body: JSON.stringify(body),
         });
         for await (const message of StreamCompletion(response.body)) {
@@ -331,18 +349,11 @@ app.listen(port, async () => {
     console.log('start ...');
     console.log(`listen at port ${port}`);
     setTimeout(async () => {
-        while (true) {
-            try {
-                await getNewSession();
-                await wait(refreshInterval);
-            }
-            catch (error) {
-                console.log('[Error getNewSession] :>> ', error);
-                console.error("Error refreshing session ID, retrying in 2 minute...");
-                console.error("If this error persists, your country may not be supported yet.");
-                console.error("If your country was the issue, please consider using a U.S. VPN.");
-                await wait(errorWait);
-            }
+        try {
+            await getNewSession();
+        }
+        catch (error) {
+            console.log('[Error getNewSession] :>> ', error);
         }
     }, 0);
 });
