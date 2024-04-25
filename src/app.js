@@ -76,6 +76,7 @@ async function* linesToMessages(linesAsync) {
 async function* StreamCompletion(data) {
     yield* linesToMessages(chunksToLines(data));
 }
+
 async function getNewSession(tryCountNow = 1) {
     const tryCountMax = 5
     let newDeviceId = randomUUID();
@@ -87,7 +88,7 @@ async function getNewSession(tryCountNow = 1) {
             'accept-language': 'zh,zh-CN;q=0.9,en;q=0.8,zh-TW;q=0.7',
             'cache-control': 'no-cache',
             'content-type': 'application/json',
-            'cookie': ` oai-did=${newDeviceId}; cf_clearance=UsfMxexor9VwaAuoxNUfCByIqkcgeNg6X2FREFi97TI-1713937740-1.0.1.1-NGhhPS1EIKdEG8I.zGDz.ava5v6jIvXodnP8DrtdQMm_uiKiVVve0g76.kZSzqtkX_xMFV401CUCus7kO9nC.Q; __Secure-next-auth.callback-url=https%3A%2F%2Fchat.openai.com`,
+            'cookie': ` oai-did=${newDeviceId}; cf_clearance=W3ImywbSVr5xLVzWm8x8FM1fpNv2vfbIsz7pUTxL0dI-1714034807-1.0.1.1-BxsE1GxPMo2n8SPAvKcbmE99.FXwhZufEgmPW19_D01ND8biSezWcwqKu8qQ.Etvtbd5ZEe2N2WUcYWePMbKtw; __Secure-next-auth.callback-url=https%3A%2F%2Fchat.openai.com`,
             'oai-device-id': newDeviceId,
             'oai-language': 'en-US',
             'origin': 'https://chat.openai.com',
@@ -113,6 +114,7 @@ async function getNewSession(tryCountNow = 1) {
             method: "POST",
         });
         response = await response.json();
+        
     } catch (error) {
         console.log('[Fail] :>> getNewSession Fail , trying', tryCountNow);
         await wait(500);
@@ -121,10 +123,8 @@ async function getNewSession(tryCountNow = 1) {
         }
         throw new Error(`ERROR: GET SESSION FAIL :::`, error)
     }
-    if (!!response?.token) {
-        console.log('request session done');
-    } else {
-        throw new Error(`!!!request session failed!!! => ${response}`)
+    if (!response?.token) {
+        throw new Error(`!!!request session FAIL!!! => ${JSON.stringify(response)}`)   
     }
     response.deviceId = newDeviceId;
     return response
@@ -140,7 +140,14 @@ function enableCORS(req, res, next) {
 }
 
 async function handleChatCompletion(req, res) {
-    console.log("Request:", `${req.method} ${req.originalUrl}`, `${req.body?.messages?.length ?? 0} messages`, req.body.stream ? "(stream-enabled)" : "(stream-disabled)");
+    let msgArr = req.body?.messages || []
+    let logStr = ``
+    msgArr.forEach(message => {
+        if (message.role === 'user') {
+            logStr += `${message.content}\n`
+        }
+    });
+    console.log(new Date().toLocaleString(), ": Request:", `${req.method} ${req.originalUrl}`, `${req.body?.messages?.length ?? 0} messages`, req.body.stream ? "(stream-enabled)" : "(stream-disabled)", '\n```\n', logStr, '\n ```');
     try {
         let session = await getNewSession().catch(err => {
             res.write(err);
@@ -190,7 +197,7 @@ async function handleChatCompletion(req, res) {
             'accept-language': 'zh,zh-CN;q=0.9,en;q=0.8,zh-TW;q=0.7',
             'cache-control': 'no-cache',
             'content-type': 'application/json',
-            'cookie': ` oai-did=${session.deviceId}; cf_clearance=UsfMxexor9VwaAuoxNUfCByIqkcgeNg6X2FREFi97TI-1713937740-1.0.1.1-NGhhPS1EIKdEG8I.zGDz.ava5v6jIvXodnP8DrtdQMm_uiKiVVve0g76.kZSzqtkX_xMFV401CUCus7kO9nC.Q; __Secure-next-auth.callback-url=https%3A%2F%2Fchat.openai.com`,
+            'cookie': ` oai-did=${session.deviceId}; cf_clearance=W3ImywbSVr5xLVzWm8x8FM1fpNv2vfbIsz7pUTxL0dI-1714034807-1.0.1.1-BxsE1GxPMo2n8SPAvKcbmE99.FXwhZufEgmPW19_D01ND8biSezWcwqKu8qQ.Etvtbd5ZEe2N2WUcYWePMbKtw; __Secure-next-auth.callback-url=https%3A%2F%2Fchat.openai.com`,
             'oai-device-id': session.deviceId,
             'oai-language': 'en-US',
             'origin': 'https://chat.openai.com',
@@ -351,6 +358,7 @@ app.listen(port, async () => {
     setTimeout(async () => {
         try {
             await getNewSession();
+            console.log('test success :>> your network connected');
         }
         catch (error) {
             console.log('[Error getNewSession] :>> ', error);
